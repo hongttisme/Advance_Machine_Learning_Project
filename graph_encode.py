@@ -1,5 +1,7 @@
 import chess
+from chessboard import display 
 import numpy as np
+import time
 
 SQUARES = chess.SQUARES
 SQUARE_NAMES = chess.SQUARE_NAMES
@@ -169,6 +171,9 @@ edge_feature_matrix = encode_edge_features(board, base_graph_edges)
 
 print("\nencode result:")
 print(f"node matrix shape: {node_feature_matrix.shape}") 
-print(f"edge matrix shape: {edge_feature_matrix.shape}")   
+print(f"edge matrix shape: {edge_feature_matrix.shape}") 
 
-
+display.start(board.fen())
+while True:
+    if display.check_for_quit():
+        display.terminate()

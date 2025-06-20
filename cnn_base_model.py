@@ -14,7 +14,8 @@ from graph_encode import move_to_index, index_to_move, encode_node_features
 
 
 
-CSV_FILE_PATH = 'C:\\Users\\tan04\\Documents\\codeplace\\AI\\advance ML\\Advance_Machine_Learning_Project\\kingbase_processed_all.csv' 
+# CSV_FILE_PATH = 'C:\\Users\\tan04\\Documents\\codeplace\\AI\\advance ML\\Advance_Machine_Learning_Project\\kingbase_processed_all.csv' 
+CSV_FILE_PATH = 'D:\\programming\\github\\Advance_Machine_Learning_Project\\kingbase_processed_all.csv' 
 BATCH_SIZE = 128
 LEARNING_RATE = 0.001
 EPOCHS = 3
