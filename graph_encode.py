@@ -17,7 +17,7 @@ def get_move_type(move: chess.Move):
     is_rook_move = dx == 0 or dy == 0
     is_king_move = max(abs(dx), abs(dy)) == 1
     
-    is_pawn_move = abs(dx) <= 1 and dy != 0 
+    is_pawn_move = abs(dx) <= 1 and dy == 1 
 
     return {
         'knight': is_knight_move,
