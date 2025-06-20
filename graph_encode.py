@@ -1,7 +1,8 @@
 import chess
-from chessboard import display 
+# from chessboard import display 
 import numpy as np
 import time
+import torch
 
 SQUARES = chess.SQUARES
 SQUARE_NAMES = chess.SQUARE_NAMES
@@ -173,7 +174,91 @@ print("\nencode result:")
 print(f"node matrix shape: {node_feature_matrix.shape}") 
 print(f"edge matrix shape: {edge_feature_matrix.shape}") 
 
-display.start(board.fen())
-while True:
-    if display.check_for_quit():
-        display.terminate()
+# display.start(board.fen())
+# while True:
+#     if display.check_for_quit():
+#         display.terminate()
+
+
+edge_list_source = []
+edge_list_target = []
+
+for i, start_square in enumerate(SQUARES):
+    for end_square_idx, _ in adjacency_list[i]:
+        edge_list_source.append(i) 
+        edge_list_target.append(end_square_idx) 
+
+
+static_edge_index = torch.tensor([edge_list_target, edge_list_source], dtype=torch.long)
+
+static_edge_map = torch.arange(len(base_graph_edges), dtype=torch.long)
+
+
+print("--- Static Graph Components ---")
+print(f"static_edge_index shape: {static_edge_index.shape}")
+print(f"static_edge_map shape: {static_edge_map.shape}")
+print("-" * 30)
+
+
+
+def create_batch_from_boards(board_list: list[chess.Board]):
+    """
+    接收一个包含多个 chess.Board 对象的列表，并将它们编码成一个批次。
+
+    Args:
+        board_list: 一个列表，每个元素都是一个 chess.Board 对象。
+
+    Returns:
+        一个包含批次化后 torch.Tensor 的字典。
+    """
+    batch_node_features = []
+    batch_edge_features = []
+
+    # 1. 遍历列表中的每一个棋盘状态
+    for board in board_list:
+        # 2. 对每个棋盘独立进行编码
+        node_features_np = encode_node_features(board) # (64, 21)
+        edge_features_np = encode_edge_features(board, base_graph_edges) # (816, 11)
+
+        batch_node_features.append(node_features_np)
+        batch_edge_features.append(edge_features_np)
+
+    # 3. 将特征列表堆叠成一个批次
+    # np.stack 会在最前面增加一个新的维度，即批次维度
+    batch_node_features_np = np.stack(batch_node_features, axis=0)
+    batch_edge_features_np = np.stack(batch_edge_features, axis=0)
+
+    # 4. 转换为 PyTorch Tensors
+    batch_data = {
+        # 节点特征的批次
+        'node_feature_matrix': torch.from_numpy(batch_node_features_np).float(),
+        # 边特征的批次
+        'edge_feature_matrix': torch.from_numpy(batch_edge_features_np).float(),
+        # 静态的图结构 (对于批次中所有样本都一样)
+        'edge_index': static_edge_index,
+        'edge_map': static_edge_map,
+    }
+    
+    return batch_data
+
+# --- 创建一个批次的示例 ---
+
+# 准备一批不同的棋盘状态 (使用FEN字符串方便地创建)
+fen_list = [
+    "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1", # 初始状态
+    "r1bqkbnr/pp1ppppp/2n5/2p5/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 2 3", # 西西里防御
+    "rnbq1rk1/pp2ppbp/3p1np1/8/3NP3/2N1B3/PPPQ1PPP/R3KB1R w KQ - 4 8", # 龙式变例
+    "8/8/8/4k3/8/8/P1P5/4K3 w - - 0 1" # 一个残局
+]
+
+# 将FEN字符串转换为 board 对象列表
+board_list = [chess.Board(fen) for fen in fen_list]
+BATCH_SIZE = len(board_list)
+
+# 创建批次!
+batch = create_batch_from_boards(board_list)
+
+print("\n--- Batch Creation Result ---")
+print(f"Batch Size: {BATCH_SIZE}")
+for key, value in batch.items():
+    print(f"Shape of '{key}': {value.shape}")
