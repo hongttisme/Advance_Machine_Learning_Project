@@ -32,9 +32,11 @@ def get_move_type(move: chess.Move):
 base_graph_edges = []
 move_to_index = {}
 index_to_move = {}
+adjacency_list = []
 
-for start_square in SQUARES:
-    for end_square in SQUARES:
+for i, start_square in enumerate(SQUARES):
+    adjacency_list.append([])
+    for j, end_square in enumerate(SQUARES):
         if start_square == end_square:
             continue
         type_dict = get_move_type(chess.Move(start_square, end_square))
@@ -48,6 +50,8 @@ for start_square in SQUARES:
             continue
 
         new_index = len(base_graph_edges)
+        adjacency_list[i].append((j,new_index))
+
 
         the_move = chess.Move(start_square, end_square)
         base_graph_edges.append(the_move)
@@ -113,7 +117,6 @@ def encode_node_features(board: chess.Board):
 
 
 def encode_edge_features(board: chess.Board, edges: list):
-    """为图中的每条边生成15维的边特征"""
     edge_features = np.zeros((len(edges), 11), dtype=np.float32)
 
     for i, move in enumerate(edges):
@@ -167,3 +170,5 @@ edge_feature_matrix = encode_edge_features(board, base_graph_edges)
 print("\nencode result:")
 print(f"node matrix shape: {node_feature_matrix.shape}") 
 print(f"edge matrix shape: {edge_feature_matrix.shape}")   
+
+
