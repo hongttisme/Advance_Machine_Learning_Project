@@ -3,6 +3,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
+class FeedForward(nn.Module):
+    def __init__(self, model_dim, ff_dim, dropout=0.1):
+        super(FeedForward, self).__init__()
+        self.linear1 = nn.Linear(model_dim, ff_dim)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(ff_dim, model_dim)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.linear1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+        x = self.linear2(x)
+        return x
+
 class MultiHeadGATEAULayer(nn.Module):
     """
     GATEAULayer with Multi-Head Attention.
@@ -126,63 +141,76 @@ class BNR(nn.Module):
         return x
 
 
-class ResGATEAU(nn.Module):
-    def __init__(self, node_in_features, edge_in_features, node_out_features, num_heads=8):
-        super(ResGATEAU, self).__init__()
+class GATEAUTransformerBlock(nn.Module):
+    def __init__(self, node_features, edge_features, num_heads, ff_dim, dropout=0.1):
+        super(GATEAUTransformerBlock, self).__init__()
+        
+        # Multi-Head Attention Sub-layer
+        self.attention = MultiHeadGATEAULayer(
+            node_in_features=node_features,
+            edge_in_features=edge_features,
+            node_out_features=node_features, # Output dimension should match input for residual connection
+            num_heads=num_heads
+        )
+        self.norm1 = nn.LayerNorm(node_features)
+        self.dropout1 = nn.Dropout(dropout)
 
-        self.bnr1 = BNR(node_in_features)
-        self.gateau1 = MultiHeadGATEAULayer(node_in_features, edge_in_features, node_out_features, num_heads=num_heads)
-        
-        self.bnr2 = BNR(node_out_features)
-        # The edge features for the second layer are the output of the first layer's attention calculation logic.
-        # The dimension is `edge_in_features`.
-        self.gateau2 = MultiHeadGATEAULayer(node_out_features, edge_in_features, node_out_features, num_heads=num_heads)
-        
-        if node_in_features != node_out_features:
-            self.residual_transform = nn.Linear(node_in_features, node_out_features)
-        else:
-            self.residual_transform = nn.Identity()
+        # Feed-Forward Sub-layer
+        self.ffn = FeedForward(
+            model_dim=node_features, 
+            ff_dim=ff_dim, 
+            dropout=dropout
+        )
+        self.norm2 = nn.LayerNorm(node_features)
+        self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map):
-        residual = self.residual_transform(node_feature_matrix)
-
-        x = self.bnr1(node_feature_matrix)
+        # --- Attention Sub-layer with Pre-Normalization ---
+        residual = node_feature_matrix
+        x_norm = self.norm1(node_feature_matrix)
         
-        # The first layer uses the original edge features
-        x, e1 = self.gateau1(x, edge_feature_matrix, edge_index, edge_map)
+        # Get attention output and new edge features
+        attn_output, new_edge_features = self.attention(
+            x_norm, edge_feature_matrix, edge_index, edge_map
+        )
         
-        x = self.bnr2(x)
+        # Add & Norm
+        x = residual + self.dropout1(attn_output)
 
-        # The second layer uses the new edge features `e1` from the first layer
-        x, e2 = self.gateau2(x, e1, edge_index, edge_map)
-
-        output_node_features = residual + x
+        # --- Feed-Forward Sub-layer with Pre-Normalization ---
+        residual = x
+        x_norm = self.norm2(x)
         
-        return output_node_features, e2
+        ffn_output = self.ffn(x_norm)
+        
+        # Add & Norm
+        output_node_features = residual + self.dropout2(ffn_output)
+
+        return output_node_features, new_edge_features
 
 
 class ChessGNN(nn.Module):
-    def __init__(self, node_in_features, edge_in_features, gnn_hidden_features, num_possible_moves, num_res_layers=10, num_heads=8):
+    def __init__(self, node_in_features, edge_in_features, gnn_hidden_features, num_possible_moves, 
+                 num_res_layers=10, num_heads=8, ff_dim=2048, dropout=0.1):
         super(ChessGNN, self).__init__()
         
+        # Initial projection layer if node_in_features is different from gnn_hidden_features
+        self.input_proj_node = nn.Linear(node_in_features, gnn_hidden_features)
+        self.input_proj_edge = nn.Linear(edge_in_features, gnn_hidden_features)
+
+        
         self.gnn_layers = nn.ModuleList()
-
-        # First ResGATEAU layer
-        self.gnn_layers.append(ResGATEAU(
-            node_in_features=node_in_features,
-            edge_in_features=edge_in_features,
-            node_out_features=gnn_hidden_features,
-            num_heads=num_heads
-        ))
-
-        # Subsequent ResGATEAU layers
-        for _ in range(num_res_layers - 1):
-            self.gnn_layers.append(ResGATEAU(
-                node_in_features=gnn_hidden_features,
-                edge_in_features=edge_in_features, # Assuming edge feature dimension remains constant
-                node_out_features=gnn_hidden_features,
-                num_heads=num_heads
+        for _ in range(num_res_layers):
+            self.gnn_layers.append(GATEAUTransformerBlock(
+                node_features=gnn_hidden_features,
+                edge_features=gnn_hidden_features, # Edge feature dimension is assumed to be constant
+                num_heads=num_heads,
+                ff_dim=ff_dim,
+                dropout=dropout
             ))
+
+        # Final normalization before the heads
+        self.final_norm = nn.LayerNorm(gnn_hidden_features)
 
         self.policy_head = nn.Sequential(
             nn.Linear(64 * gnn_hidden_features, 1024),
@@ -198,14 +226,17 @@ class ChessGNN(nn.Module):
         )
 
     def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map, batch_size):
-        x = node_feature_matrix
-        e = edge_feature_matrix
-        for layer in self.gnn_layers:
-            x, e = layer(x, e, edge_index, edge_map) # Pass the updated edge features 'e' to the next layer
-
-        processed_node_features = x
+        # Initial projection
+        x = self.input_proj_node(node_feature_matrix)
+        e = self.input_proj_edge(edge_feature_matrix)
         
-        # Reshape to (batch_size, num_nodes * features) for the policy and value heads
+        # Pass through the stack of Transformer blocks
+        for layer in self.gnn_layers:
+            x, e = layer(x, e, edge_index, edge_map) # Pass updated edge features if needed
+
+        # Final normalization
+        processed_node_features = self.final_norm(x)
+        
         graph_representation = processed_node_features.view(batch_size, -1)
 
         policy_logits = self.policy_head(graph_representation)
