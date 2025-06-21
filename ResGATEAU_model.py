@@ -56,8 +56,8 @@ class GATEAULayer(nn.Module):
         source_node_feats_for_attention = h_nodes_v[source_node_idx]
         edge_feats_for_attention = h_edges_e[edge_map]
 
-        attention_scores_raw = target_node_feats_for_attention + source_node_feats_for_attention + edge_feats_for_attention
-        attention_scores = self.leaky_relu(attention_scores_raw @ self.a) 
+        new_edge_feature = target_node_feats_for_attention + source_node_feats_for_attention + edge_feats_for_attention
+        attention_scores = self.leaky_relu(new_edge_feature @ self.a) 
         max_scores = torch.full((num_nodes,), -1e9, device=attention_scores.device, dtype=attention_scores.dtype)
         max_scores.scatter_reduce_(0, target_node_idx, attention_scores, reduce="amax", include_self=False)
         
@@ -84,7 +84,7 @@ class GATEAULayer(nn.Module):
 
         new_final = h_nodes_0 + aggregated_messages
 
-        return new_final, attention_scores_raw
+        return new_final, new_edge_feature
     
 
 
