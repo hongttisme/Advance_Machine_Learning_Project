@@ -18,12 +18,17 @@ CSV_FILE_PATH = 'C:\\Users\\tan04\\Documents\\codeplace\\AI\\advance ML\\Advance
 # CSV_FILE_PATH = 'D:\\programming\\github\\Advance_Machine_Learning_Project\\kingbase_processed_all.csv' 
 BATCH_SIZE = 128
 LEARNING_RATE = 0.001
-EPOCHS = 3
+EPOCHS = 20
 MODEL_SAVE_PATH = 'simple_chess_cnn_v2.pth'
-TEST_SIZE = 0.15
-VAL_SIZE = 0.15 
+TEST_SIZE = 0.1
+VAL_SIZE = 0.1
 
 NUM_POSSIBLE_MOVES = len(index_to_move)
+
+def count_parameters(model):
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    return total_params, trainable_params
 
 def uci_to_index(uci_move):
     try:
@@ -76,8 +81,8 @@ class SimpleChessCNN(nn.Module):
         num_possible_moves = NUM_POSSIBLE_MOVES
         self.body = nn.Sequential(nn.Conv2d(num_input_channels, 32, 3, padding=1), nn.ReLU(), nn.Conv2d(32, 64, 3, padding=1), nn.ReLU())
         flattened_size = 64 * 8 * 8
-        self.value_head = nn.Sequential(nn.Linear(flattened_size, 128), nn.ReLU(), nn.Linear(128, 1), nn.Tanh())
-        self.policy_head = nn.Sequential(nn.Linear(flattened_size, 256), nn.ReLU(), nn.Linear(256, num_possible_moves))
+        self.value_head = nn.Sequential(nn.Linear(flattened_size, 512), nn.ReLU(), nn.Linear(512, 1), nn.Tanh())
+        self.policy_head = nn.Sequential(nn.Linear(flattened_size, 1024), nn.ReLU(), nn.Linear(1024, num_possible_moves))
     def forward(self, x):
         x = self.body(x)
         x_flattened = x.view(x.size(0), -1)
@@ -93,6 +98,9 @@ def train_model(model, train_loader, val_loader, epochs):
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     criterion_value = nn.MSELoss()
     criterion_policy = nn.CrossEntropyLoss()
+    total, trainable = count_parameters(model)
+    print(f"Total parameters: {total:,}")
+    print(f"Trainable parameters: {trainable:,}\n\n")
     
     for epoch in range(epochs):
         # --- 训练部分 ---

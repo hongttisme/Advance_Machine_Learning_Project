@@ -191,7 +191,7 @@ class GATEAUTransformerBlock(nn.Module):
 
 class ChessGNN(nn.Module):
     def __init__(self, node_in_features, edge_in_features, gnn_hidden_features, num_possible_moves, 
-                 num_res_layers=10, num_heads=8, ff_dim=2048, dropout=0.1):
+                 num_res_layers=10, num_heads=8, ff_dim=512, dropout=0.1):
         super(ChessGNN, self).__init__()
         
         # Initial projection layer if node_in_features is different from gnn_hidden_features
@@ -243,3 +243,6 @@ class ChessGNN(nn.Module):
         value = self.value_head(graph_representation)
 
         return policy_logits, value
+    
+
+
