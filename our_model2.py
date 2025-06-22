@@ -46,6 +46,9 @@ class MultiHeadGATEAULayer(nn.Module):
         self.a = nn.Parameter(torch.randn(num_heads, self.head_dim))
         
         self.W_out = nn.Linear(node_out_features, node_out_features)
+
+        self.a_proj = nn.Linear(self.edge_in_features, self.num_heads)
+
         self.leaky_relu = nn.LeakyReLU(negative_slope=0.2)
         
         self.reset_parameters()
@@ -87,7 +90,6 @@ class MultiHeadGATEAULayer(nn.Module):
         new_edge_feature_for_attention = new_edge_feature_for_attention.unsqueeze(1).repeat(1, self.num_heads, 1)
         
         if not hasattr(self, 'a_proj'):
-            self.a_proj = nn.Linear(self.edge_in_features, self.num_heads).to(node_feature_matrix.device)
             nn.init.xavier_uniform_(self.a_proj.weight)
 
         attention_logits = self.a_proj(new_edge_feature_for_attention[:, 0, :]).view(num_edges, self.num_heads) 
