@@ -184,7 +184,7 @@ class ChessGNN(nn.Module):
         e = edge_feature_matrix
         for layer in self.gnn_layers:
 
-            x, e = layer(x, edge_feature_matrix, edge_index, edge_map)
+            x, e = layer(x, e, edge_index, edge_map)
 
         processed_node_features = x
         
