@@ -13,8 +13,6 @@ import random
 import chess
 from tqdm import tqdm
 import numpy as np
-from chessboard import display
-from time import sleep
 
     
 def start_model(checkpoint_file_name="checkpoint_epoch_41.pth"):
@@ -64,18 +62,20 @@ def model_predict(model, board):
     policy_logits = policy_logits.to("cpu")
     policy_logits = policy_logits.detach().numpy()
 
+    value_pred = value_pred.to("cpu")
+    value_pred = value_pred.detach().numpy()
+
     return policy_logits, value_pred
 
+if __name__ == '__main__':
+    board = chess.Board()
+    model = start_model()
 
+    while(True):
+        policy_logits, value_pred = model_predict(model, board)
 
-board = chess.Board()
-model = start_model()
+        # print(value_pred)
+        index = np.argmax(policy_logits)
 
-while(True):
-    policy_logits, value_pred = model_predict(model, board)
-
-    # print(value_pred)
-    index = np.argmax(policy_logits)
-
-    print(index_to_move[index], end="', '")
-    board.push(index_to_move[index])
+        print(index_to_move[index], end="', '")
+        board.push(index_to_move[index])
