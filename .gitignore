@@ -2,4 +2,8 @@ kingbase_processed_all.csv
 /checkpoints
 /checkpoints of our model
 /checkpoints of our model2
+<<<<<<< HEAD
 /checkpoints_testing
+=======
+*.pth
+>>>>>>> 9c1a09503d1568415d863e212342513673e1d548
