@@ -3,4 +3,5 @@ kingbase_processed_all.csv
 /checkpoints of our model
 /checkpoints of our model2
 /checkpoints_testing
-*.pth
+
+/checkpoints_v2

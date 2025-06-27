@@ -39,7 +39,7 @@ class GATEAULayer(nn.Module):
         nn.init.zeros_(self.a)
 
 
-    def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map):
+    def forward(self, node_feature_matrix, edge_feature_matrix, edge_index):
 
         num_nodes = node_feature_matrix.shape[0]
         target_node_idx, source_node_idx = edge_index[0], edge_index[1]
@@ -51,13 +51,14 @@ class GATEAULayer(nn.Module):
         h_edges_e = edge_feature_matrix @ self.We
         h_edges_g = edge_feature_matrix @ self.Wg
         
-
         target_node_feats_for_attention = h_nodes_u[target_node_idx]
         source_node_feats_for_attention = h_nodes_v[source_node_idx]
-        edge_feats_for_attention = h_edges_e[edge_map]
+        edge_feats_for_attention = h_edges_e
 
-        new_edge_feature = target_node_feats_for_attention + source_node_feats_for_attention + edge_feats_for_attention
-        attention_scores = self.leaky_relu(new_edge_feature @ self.a) 
+
+        g_prime = target_node_feats_for_attention + source_node_feats_for_attention + edge_feats_for_attention
+        
+        attention_scores = self.leaky_relu(g_prime @ self.a)
         max_scores = torch.full((num_nodes,), -1e9, device=attention_scores.device, dtype=attention_scores.dtype)
         max_scores.scatter_reduce_(0, target_node_idx, attention_scores, reduce="amax", include_self=False)
         
@@ -71,9 +72,8 @@ class GATEAULayer(nn.Module):
 
         alpha = attention_scores_exp / (sum_exp_per_edge + 1e-10)
 
-
         source_node_values = h_nodes_h[source_node_idx]
-        edge_values = h_edges_g[edge_map]
+        edge_values = h_edges_g
         values = source_node_values + edge_values
         
         weighted_values = values * alpha.unsqueeze(-1)
@@ -81,10 +81,9 @@ class GATEAULayer(nn.Module):
         aggregated_messages = torch.zeros_like(h_nodes_0)
         aggregated_messages.index_add_(0, target_node_idx, weighted_values)
 
-
         new_final = h_nodes_0 + aggregated_messages
-
-        return new_final, new_edge_feature
+        
+        return new_final, g_prime
     
 
 
@@ -116,30 +115,31 @@ class ResGATEAU(nn.Module):
 
         self.bnr2 = BNR(node_out_features)
         self.gateau2 = GATEAULayer(node_out_features, edge_in_features, node_out_features)
-        
+        self.bnr3 = BNR(edge_in_features)
+        self.bnr4 = BNR(edge_in_features)
+
+
         if node_in_features != node_out_features:
             self.residual_transform = nn.Linear(node_in_features, node_out_features)
         else:
             self.residual_transform = nn.Identity()
 
-    def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map):
-        residual = self.residual_transform(node_feature_matrix)
-
+    def forward(self, node_feature_matrix, edge_feature_matrix, edge_index):
+        node_residual = self.residual_transform(node_feature_matrix)
+        edge_residual = edge_feature_matrix 
 
         x = self.bnr1(node_feature_matrix)
-        
-
-        x, e = self.gateau1(x, edge_feature_matrix, edge_index, edge_map)
+        e = self.bnr3(edge_feature_matrix) 
+        x, e = self.gateau1(x, e, edge_index) 
         
         x = self.bnr2(x)
+        e = self.bnr4(e) 
+        x, e = self.gateau2(x, e, edge_index) 
 
-        x, e = self.gateau2(x, e, edge_index, edge_map)
-
-
-        output_node_features = residual + x
+        output_node_features = node_residual + x
+        output_edge_features = edge_residual + e 
         
-        return output_node_features, e
-    
+        return output_node_features, output_edge_features
 
 class ChessGNN(nn.Module):
 
@@ -180,13 +180,13 @@ class ChessGNN(nn.Module):
 
     def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map, batch_size):
 
-        x = node_feature_matrix
-        e = edge_feature_matrix
+        x_node = node_feature_matrix
+        x_edge = edge_feature_matrix[edge_map]
         for layer in self.gnn_layers:
 
-            x, e = layer(x, e, edge_index, edge_map)
+            x_node, x_edge = layer(x_node, x_edge, edge_index)
 
-        processed_node_features = x
+        processed_node_features = x_node
         
 
         graph_representation = processed_node_features.view(batch_size, -1)
