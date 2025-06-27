@@ -221,3 +221,18 @@ def create_batch_from_boards(board_list: list[chess.Board]):
 
 
 
+def get_incoming_move_indices(target_square_name: str):
+
+    try:
+        target_square_index = SQUARE_NAMES.index(target_square_name.lower())
+    except ValueError:
+        print(f"Error: '{target_square_name}' is not a valid square name.")
+        return []
+
+    incoming_indices = []
+    from_indices = []
+    for index, move in enumerate(base_graph_edges):
+        if move.to_square == target_square_index:
+            incoming_indices.append(index)
+            from_indices.append(move.from_square)
+    return incoming_indices, from_indices
