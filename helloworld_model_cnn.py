@@ -47,6 +47,9 @@ def model_predict(model, board):
 
     return policy_logits, value_pred
 
+def model_predict_mask_logit():
+    return move
+
 if __name__ == '__main__':
     board = chess.Board()
     model = start_model()
