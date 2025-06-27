@@ -1,6 +1,5 @@
 import chess
 import numpy as np
-import time
 import torch
 
 SQUARES = chess.SQUARES
@@ -22,16 +21,12 @@ def encode_global_node_features(board: chess.Board):
     Total: 9 features
     """
     
-    # Feature 1: Current player (1.0 for WHITE, 0.0 for BLACK)
     current_player = 1.0 if board.turn == chess.WHITE else 0.0
     
-    # Feature 2: Total move count
     total_move_count = board.fullmove_number
     
-    # Feature 3: No progress count (for 50-move rule)
     no_progress_count = board.halfmove_clock
     
-    # Features 4-7: Castling rights (WK, WQ, BK, BQ)
     castling_rights = np.array([
         board.has_kingside_castling_rights(chess.WHITE),
         board.has_queenside_castling_rights(chess.WHITE),
@@ -39,7 +34,6 @@ def encode_global_node_features(board: chess.Board):
         board.has_queenside_castling_rights(chess.BLACK)
     ], dtype=np.float32)
 
-    # Features 8-9: Repetition info
     is_2_fold_repetition = 1.0 if board.is_repetition(2) else 0.0
     is_3_fold_repetition = 1.0 if board.is_repetition(3) else 0.0
     
@@ -47,7 +41,7 @@ def encode_global_node_features(board: chess.Board):
         current_player,
         total_move_count,
         no_progress_count,
-        *castling_rights, # Unpack the 4 castling rights
+        *castling_rights, 
         is_2_fold_repetition,
         is_3_fold_repetition
     ], dtype=np.float32)
@@ -121,24 +115,13 @@ PIECE_MAP = {
 }
 
 def encode_node_features(board: chess.Board):
-    """
-    Encodes the local features for each of the 64 nodes (squares).
-    
-    Features:
-    - One-hot encoding of the piece on the square (12 possibilities)
-    Total: 12 features per node
-    """
-    
-    # The feature vector for each node will have 12 elements,
-    # one for each piece type and color.
+
     node_features = np.zeros((64, 12), dtype=np.float32)
 
     for i, square in enumerate(SQUARES):
         piece = board.piece_at(square)
         if piece:
-            # Get the index for the piece (e.g., white pawn is 0, black pawn is 1, etc.)
             piece_idx = PIECE_MAP[(piece.piece_type, piece.color)]
-            # Set the corresponding feature to 1.0
             node_features[i, piece_idx] = 1.0
             
     return node_features
@@ -181,30 +164,6 @@ def encode_edge_features(board: chess.Board, edges: list):
 
 
 
-board = chess.Board()
-
-
-moves_to_play = ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"]
-for move_uci in moves_to_play:
-    move = chess.Move.from_uci(move_uci)
-    if move in board.legal_moves:
-        board.push(move)
-
-print("current state (FEN):", board.fen())
-
-
-node_feature_matrix = encode_node_features(board)
-edge_feature_matrix = encode_edge_features(board, base_graph_edges)
-
-
-print("\nencode result:")
-print(f"node matrix shape: {node_feature_matrix.shape}") 
-print(f"edge matrix shape: {edge_feature_matrix.shape}") 
-
-# display.start(board.fen())
-# while True:
-#     if display.check_for_quit():
-#         display.terminate()
 
 
 edge_list_source = []
@@ -229,39 +188,29 @@ print("-" * 30)
 
 
 def create_batch_from_boards(board_list: list[chess.Board]):
-    """
-    Creates a batch of graph data from a list of board states,
-    including the new global node vectors.
-    """
     batch_node_features = []
     batch_edge_features = []
-    # --- NEW: List to store global features for each board ---
     batch_global_features = []
 
     for board in board_list:
         node_features_np = encode_node_features(board)           # Shape: (64, 12)
         edge_features_np = encode_edge_features(board, base_graph_edges) # Shape: (1792, 11)
-        # --- NEW: Encode and append the global features ---
         global_features_np = encode_global_node_features(board) # Shape: (9,)
 
         batch_node_features.append(node_features_np)
         batch_edge_features.append(edge_features_np)
-        # --- NEW: Add to the batch list ---
         batch_global_features.append(global_features_np)
 
-    # Concatenate node and edge features as before
     batch_node_features_np = np.concatenate(batch_node_features, axis=0)
     batch_edge_features_np = np.concatenate(batch_edge_features, axis=0)
     
-    # --- NEW: Stack global features into a batch tensor ---
-    # Use np.stack to create a (batch_size, num_global_features) tensor
+
     batch_global_features_np = np.stack(batch_global_features, axis=0)
 
 
     batch_data = {
         'node_feature_matrix': torch.from_numpy(batch_node_features_np).float(),
         'edge_feature_matrix': torch.from_numpy(batch_edge_features_np).float(),
-        # --- NEW: Add the global node vector to the batch data dictionary ---
         'global_node_vector': torch.from_numpy(batch_global_features_np).float(),
         'edge_index': static_edge_index,
         'edge_map': static_edge_map,
