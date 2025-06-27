@@ -1,7 +1,5 @@
 import chess
-# from chessboard import display 
 import numpy as np
-import time
 import torch
 
 SQUARES = chess.SQUARES
@@ -153,31 +151,6 @@ def encode_edge_features(board: chess.Board, edges: list):
     return edge_features
 
 
-
-board = chess.Board()
-
-
-moves_to_play = ["e2e4", "e7e5", "g1f3", "b8c6", "f1b5"]
-for move_uci in moves_to_play:
-    move = chess.Move.from_uci(move_uci)
-    if move in board.legal_moves:
-        board.push(move)
-
-print("current state (FEN):", board.fen())
-
-
-node_feature_matrix = encode_node_features(board)
-edge_feature_matrix = encode_edge_features(board, base_graph_edges)
-
-
-print("\nencode result:")
-print(f"node matrix shape: {node_feature_matrix.shape}") 
-print(f"edge matrix shape: {edge_feature_matrix.shape}") 
-
-# display.start(board.fen())
-# while True:
-#     if display.check_for_quit():
-#         display.terminate()
 
 
 edge_list_source = []

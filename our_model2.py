@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 
 class FeedForward(nn.Module):
     def __init__(self, model_dim, ff_dim, dropout=0.1):
@@ -19,9 +18,7 @@ class FeedForward(nn.Module):
         return x
 
 class MultiHeadGATEAULayer(nn.Module):
-    """
-    GATEAULayer with Multi-Head Attention.
-    """
+
     def __init__(self, node_in_features, edge_in_features, node_out_features, num_heads=8):
         super(MultiHeadGATEAULayer, self).__init__()
         assert node_out_features % num_heads == 0, "node_out_features must be divisible by num_heads"
@@ -40,7 +37,6 @@ class MultiHeadGATEAULayer(nn.Module):
         self.Wh = nn.Parameter(torch.randn(node_in_features, node_out_features))
         self.Wg = nn.Parameter(torch.randn(edge_in_features, node_out_features))
         self.W0 = nn.Parameter(torch.randn(node_in_features, node_out_features))
-        # --- NEW (Request 1): Weight matrix for global vector's effect on node updates ---
         self.W_global_node = nn.Parameter(torch.randn(node_in_features, node_out_features))
 
         self.a = nn.Parameter(torch.randn(num_heads, self.head_dim))
@@ -61,7 +57,6 @@ class MultiHeadGATEAULayer(nn.Module):
         nn.init.xavier_uniform_(self.Wh)
         nn.init.xavier_uniform_(self.Wg)
         nn.init.xavier_uniform_(self.W0)
-        # --- NEW (Request 1): Initialize the new weight matrix ---
         nn.init.xavier_uniform_(self.W_global_node)
         nn.init.xavier_uniform_(self.W_out.weight)
         nn.init.zeros_(self.W_out.bias)
@@ -115,10 +110,8 @@ class MultiHeadGATEAULayer(nn.Module):
         aggregated_messages = torch.zeros_like(h_nodes_0)
         aggregated_messages.index_add_(0, target_node_idx, weighted_values)
         
-        # --- MODIFIED (Request 1): Project global node features before adding to the node update ---
         projected_global_for_update = (global_node_features @ self.W_global_node).view(-1, self.num_heads, self.head_dim)
 
-        # Combine skip connection, aggregated messages, and the *projected* global node vector
         new_h = h_nodes_0 + aggregated_messages + projected_global_for_update
         
         concatenated_h = new_h.view(-1, self.node_out_features)
@@ -165,11 +158,9 @@ class GATEAUTransformerBlock(nn.Module):
 
         return output_node_features, new_edge_features
 
-# --- NEW (Request 2): Module to update the global node vector ---
 class GlobalNodeUpdater(nn.Module):
     def __init__(self, hidden_features):
         super(GlobalNodeUpdater, self).__init__()
-        # GRU-like update mechanism
         self.gate_linear = nn.Linear(hidden_features * 2, hidden_features)
         self.candidate_linear = nn.Linear(hidden_features * 2, hidden_features)
         self.hidden_features = hidden_features
@@ -181,14 +172,11 @@ class GlobalNodeUpdater(nn.Module):
         node_features_reshaped = node_features.view(batch_size, num_nodes_per_graph, self.hidden_features)
         mean_node_features = node_features_reshaped.mean(dim=1) # Shape: (batch_size, hidden_features)
 
-        # Concatenate old global state and aggregated node info
         combined = torch.cat([global_node, mean_node_features], dim=-1)
 
-        # Calculate update gate and candidate state
         update_gate = torch.sigmoid(self.gate_linear(combined))
         candidate_state = torch.tanh(self.candidate_linear(combined))
 
-        # Perform the gated update
         new_global_node = (1 - update_gate) * global_node + update_gate * candidate_state
         return new_global_node
 
@@ -202,7 +190,6 @@ class ChessGNN(nn.Module):
         self.input_proj_global = nn.Linear(global_node_in_features, gnn_hidden_features)
 
         self.gnn_layers = nn.ModuleList()
-        # --- NEW (Request 2): Create a list of global updaters, one for each layer ---
         self.global_updaters = nn.ModuleList()
         
         for _ in range(num_res_layers):
@@ -213,7 +200,6 @@ class ChessGNN(nn.Module):
                 ff_dim=ff_dim,
                 dropout=dropout
             ))
-            # Each layer gets its own updater
             self.global_updaters.append(GlobalNodeUpdater(gnn_hidden_features))
 
         self.final_norm = nn.LayerNorm(gnn_hidden_features)
@@ -231,25 +217,19 @@ class ChessGNN(nn.Module):
             nn.Tanh() 
         )
 
-    # --- MODIFIED: The forward pass now updates and returns the global vector ---
     def forward(self, node_feature_matrix, edge_feature_matrix, global_node_vector, edge_index, edge_map, batch_size):
         x = self.input_proj_node(node_feature_matrix)
         e = self.input_proj_edge(edge_feature_matrix)
         
-        # Project initial global vector
         current_global_node = self.input_proj_global(global_node_vector)
         
         num_nodes_per_graph = x.shape[0] // batch_size
         
-        # --- MODIFIED (Request 2): Iteratively update the global node vector ---
         for i, layer in enumerate(self.gnn_layers):
-            # Expand the *current* global node for this layer's use
             expanded_global_node = current_global_node.unsqueeze(1).repeat(1, num_nodes_per_graph, 1).view(batch_size * num_nodes_per_graph, -1)
             
-            # Pass features through the Transformer block
             x, e = layer(x, e, edge_index, edge_map, expanded_global_node)
             
-            # Update the global node using the output of the current layer
             updater = self.global_updaters[i]
             current_global_node = updater(current_global_node, x, batch_size)
 
@@ -258,6 +238,5 @@ class ChessGNN(nn.Module):
         policy_logits = self.policy_head(graph_representation)
         value = self.value_head(graph_representation)
 
-        # Return the final updated global node as well
         return policy_logits, value
     

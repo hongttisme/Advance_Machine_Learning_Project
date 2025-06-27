@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import math
 
 class FeedForward(nn.Module):
     def __init__(self, model_dim, ff_dim, dropout=0.1):
@@ -19,9 +18,7 @@ class FeedForward(nn.Module):
         return x
 
 class MultiHeadGATEAULayer(nn.Module):
-    """
-    GATEAULayer with Multi-Head Attention.
-    """
+
     def __init__(self, node_in_features, edge_in_features, node_out_features, num_heads=8):
         super(MultiHeadGATEAULayer, self).__init__()
         assert node_out_features % num_heads == 0, "node_out_features must be divisible by num_heads"
@@ -74,7 +71,6 @@ class MultiHeadGATEAULayer(nn.Module):
         h_nodes_u = node_feature_matrix @ self.Wu
         h_edges_e = edge_feature_matrix @ self.We
 
-        # These transformations produce the values to be aggregated, so they need to be split into heads.
         h_nodes_h = (node_feature_matrix @ self.Wh).view(-1, self.num_heads, self.head_dim)
         h_edges_g = (edge_feature_matrix @ self.Wg).view(-1, self.num_heads, self.head_dim)
         h_nodes_0 = (node_feature_matrix @ self.W0).view(-1, self.num_heads, self.head_dim)
@@ -110,19 +106,15 @@ class MultiHeadGATEAULayer(nn.Module):
         edge_values = h_edges_g[edge_map]             # Shape: (num_edges, num_heads, head_dim)
         values = source_node_values + edge_values
         
-        # alpha needs to be unsqueezed to match value dimensions for broadcasting
         weighted_values = values * alpha.unsqueeze(-1) # Shape: (num_edges, num_heads, head_dim)
 
         aggregated_messages = torch.zeros_like(h_nodes_0) # Shape: (num_nodes, num_heads, head_dim)
         aggregated_messages.index_add_(0, target_node_idx, weighted_values)
 
-        # Combine with skip connection and concatenate heads
         new_h = h_nodes_0 + aggregated_messages # Shape: (num_nodes, num_heads, head_dim)
         
-        # Concatenate heads
         concatenated_h = new_h.view(-1, self.node_out_features) # Shape: (num_nodes, node_out_features)
         
-        # Apply final linear projection
         new_final = self.W_out(concatenated_h)
 
 
@@ -147,17 +139,15 @@ class GATEAUTransformerBlock(nn.Module):
     def __init__(self, node_features, edge_features, num_heads, ff_dim, dropout=0.1):
         super(GATEAUTransformerBlock, self).__init__()
         
-        # Multi-Head Attention Sub-layer
         self.attention = MultiHeadGATEAULayer(
             node_in_features=node_features,
             edge_in_features=edge_features,
-            node_out_features=node_features, # Output dimension should match input for residual connection
+            node_out_features=node_features,
             num_heads=num_heads
         )
         self.norm1 = nn.LayerNorm(node_features)
         self.dropout1 = nn.Dropout(dropout)
 
-        # Feed-Forward Sub-layer
         self.ffn = FeedForward(
             model_dim=node_features, 
             ff_dim=ff_dim, 
@@ -167,25 +157,20 @@ class GATEAUTransformerBlock(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map):
-        # --- Attention Sub-layer with Pre-Normalization ---
         residual = node_feature_matrix
         x_norm = self.norm1(node_feature_matrix)
         
-        # Get attention output and new edge features
         attn_output, new_edge_features = self.attention(
             x_norm, edge_feature_matrix, edge_index, edge_map
         )
         
-        # Add & Norm
         x = residual + self.dropout1(attn_output)
 
-        # --- Feed-Forward Sub-layer with Pre-Normalization ---
         residual = x
         x_norm = self.norm2(x)
         
         ffn_output = self.ffn(x_norm)
         
-        # Add & Norm
         output_node_features = residual + self.dropout2(ffn_output)
 
         return output_node_features, new_edge_features
@@ -196,7 +181,6 @@ class ChessGNN(nn.Module):
                  num_res_layers=10, num_heads=8, ff_dim=512, dropout=0.1):
         super(ChessGNN, self).__init__()
         
-        # Initial projection layer if node_in_features is different from gnn_hidden_features
         self.input_proj_node = nn.Linear(node_in_features, gnn_hidden_features)
         self.input_proj_edge = nn.Linear(edge_in_features, gnn_hidden_features)
 
@@ -205,13 +189,12 @@ class ChessGNN(nn.Module):
         for _ in range(num_res_layers):
             self.gnn_layers.append(GATEAUTransformerBlock(
                 node_features=gnn_hidden_features,
-                edge_features=gnn_hidden_features, # Edge feature dimension is assumed to be constant
+                edge_features=gnn_hidden_features, 
                 num_heads=num_heads,
                 ff_dim=ff_dim,
                 dropout=dropout
             ))
 
-        # Final normalization before the heads
         self.final_norm = nn.LayerNorm(gnn_hidden_features)
 
         self.policy_head = nn.Sequential(
@@ -228,15 +211,12 @@ class ChessGNN(nn.Module):
         )
 
     def forward(self, node_feature_matrix, edge_feature_matrix, edge_index, edge_map, batch_size):
-        # Initial projection
         x = self.input_proj_node(node_feature_matrix)
         e = self.input_proj_edge(edge_feature_matrix)
         
-        # Pass through the stack of Transformer blocks
         for layer in self.gnn_layers:
-            x, e = layer(x, e, edge_index, edge_map) # Pass updated edge features if needed
+            x, e = layer(x, e, edge_index, edge_map) 
 
-        # Final normalization
         processed_node_features = self.final_norm(x)
         
         graph_representation = processed_node_features.view(batch_size, -1)
